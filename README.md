@@ -1,4 +1,5 @@
-<<<<<<< HEAD
+## Live Demo: https://socialhub-web-kindi-h2ckgmgrftere8fa.westus3-01.azurewebsites.net/
+
 # socialhub
 =======
 # SocialHub
