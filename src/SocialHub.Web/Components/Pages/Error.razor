@@ -1,0 +1,27 @@
+@page "/Error"
+@layout AuthLayout
+@attribute [ExcludeFromInteractiveRouting]
+@using System.Diagnostics
+
+<PageTitle>Error</PageTitle>
+
+<h1 class="h4 text-danger">Something went wrong.</h1>
+<p>An error occurred while processing your request.</p>
+
+@if (ShowRequestId)
+{
+    <p class="small"><strong>Request ID:</strong> <code>@RequestId</code></p>
+}
+
+<a href="" class="btn btn-primary">Back to SocialHub</a>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

@@ -1,0 +1,6 @@
+bin/
+obj/
+.vs/
+*.user
+src/SocialHub.Api/wwwroot/uploads/*
+!src/SocialHub.Api/wwwroot/uploads/.gitkeep

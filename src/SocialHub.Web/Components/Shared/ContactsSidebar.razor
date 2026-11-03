@@ -1,0 +1,78 @@
+@inject ApiClient Api
+
+<div class="sticky-side">
+    @if (requests.Count > 0)
+    {
+        <div class="side-section">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="text-secondary mb-0">Friend requests</h6>
+                <a href="friends" class="small">See all</a>
+            </div>
+            @foreach (var r in requests.Take(3))
+            {
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <a href="profile/@r.User.Id"><Avatar User="r.User" Size="44" /></a>
+                    <div class="flex-grow-1">
+                        <a href="profile/@r.User.Id" class="fw-semibold text-body text-decoration-none">@r.User.DisplayName</a>
+                        <div class="d-flex gap-1 mt-1">
+                            <button class="btn btn-primary btn-sm" @onclick="() => Accept(r)">Confirm</button>
+                            <button class="btn btn-light btn-sm" @onclick="() => Decline(r)">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            }
+            <hr />
+        </div>
+    }
+
+    <h6 class="text-secondary mb-2">Contacts</h6>
+    @if (friends is null)
+    {
+        <div class="placeholder-glow"><span class="placeholder col-8"></span></div>
+    }
+    else if (friends.Count == 0)
+    {
+        <p class="small text-secondary">No friends yet. <a href="friends">Find people</a>.</p>
+    }
+    else
+    {
+        foreach (var f in friends)
+        {
+            <a class="contact" href="messages/@f.Id">
+                <Avatar User="f" Size="36" /> <span>@f.DisplayName</span>
+            </a>
+        }
+    }
+</div>
+
+@code {
+    private List<UserSummaryDto>? friends;
+    private List<FriendRequestDto> requests = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            friends = await Api.GetFriendsAsync();
+            requests = await Api.GetIncomingRequestsAsync();
+        }
+        catch (ApiException)
+        {
+            friends ??= [];
+        }
+    }
+
+    private async Task Accept(FriendRequestDto r)
+    {
+        await Api.AcceptFriendRequestAsync(r.Id);
+        await LoadAsync();
+    }
+
+    private async Task Decline(FriendRequestDto r)
+    {
+        await Api.DeclineFriendRequestAsync(r.Id);
+        requests.Remove(r);
+    }
+}

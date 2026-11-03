@@ -1,0 +1,41 @@
+@page "/search"
+@inject ApiClient Api
+
+<PageTitle>Search · SocialHub</PageTitle>
+
+<div class="card feed-card">
+    <div class="card-body">
+        <h1 class="h5 mb-3">People matching "@Q"</h1>
+        @if (results is null)
+        {
+            <div class="text-center py-3"><span class="spinner-border text-secondary"></span></div>
+        }
+        else if (results.Count == 0)
+        {
+            <p class="text-secondary mb-0">No people found. Try a different name (at least 2 characters).</p>
+        }
+        else
+        {
+            foreach (var u in results)
+            {
+                <a class="person-row text-body text-decoration-none" href="profile/@u.Id" @key="u.Id">
+                    <Avatar User="u" Size="56" />
+                    <span class="fw-semibold">@u.DisplayName</span>
+                </a>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? Q { get; set; }
+
+    private List<UserSummaryDto>? results;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        results = null;
+        try { results = await Api.SearchUsersAsync(Q ?? ""); }
+        catch (ApiException) { results = []; }
+    }
+}

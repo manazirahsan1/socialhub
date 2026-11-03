@@ -1,0 +1,5 @@
+@inject RealtimeService Realtime
+
+@code {
+    protected override async Task OnInitializedAsync() => await Realtime.StartAsync();
+}

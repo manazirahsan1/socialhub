@@ -1,0 +1,295 @@
+@page "/messages"
+@page "/messages/{UserId}"
+@implements IDisposable
+@inject ApiClient Api
+@inject RealtimeService Realtime
+@inject IJSRuntime JS
+
+<PageTitle>Messages · SocialHub</PageTitle>
+
+<div class="card feed-card messenger">
+    <div class="row g-0 h-100">
+        <!-- Conversation list -->
+        <div class="col-md-4 border-end conv-list @(UserId is null ? "" : "d-none d-md-block")">
+            <div class="p-3 pb-2"><h1 class="h5 mb-0">Chats</h1></div>
+            @if (conversations is null)
+            {
+                <div class="p-3 text-secondary small">Loading...</div>
+            }
+            else if (conversations.Count == 0)
+            {
+                <div class="p-3 text-secondary small">No conversations yet. Message a friend from their profile or your contacts.</div>
+            }
+            else
+            {
+                foreach (var c in conversations)
+                {
+                    <a class="conv-item @(c.User.Id == UserId ? "active" : "")" href="messages/@c.User.Id" @key="c.User.Id">
+                        <Avatar User="c.User" Size="48" />
+                        <div class="flex-grow-1 overflow-hidden">
+                            <div class="d-flex justify-content-between">
+                                <span class="text-truncate @(c.UnreadCount > 0 ? "fw-bold" : "fw-semibold")">@c.User.DisplayName</span>
+                                <span class="small text-secondary flex-shrink-0 ms-2">@Format.TimeAgo(c.LastMessageAt)</span>
+                            </div>
+                            <div class="small text-truncate @(c.UnreadCount > 0 ? "fw-bold text-body" : "text-secondary")">
+                                @(c.LastFromMe ? "You: " : "")@c.LastMessage
+                            </div>
+                        </div>
+                        @if (c.UnreadCount > 0) { <span class="badge rounded-pill bg-primary">@c.UnreadCount</span> }
+                    </a>
+                }
+            }
+        </div>
+
+        <!-- Thread -->
+        <div class="col-md-8 d-flex flex-column thread @(UserId is null ? "d-none d-md-flex" : "")">
+            @if (UserId is null)
+            {
+                <div class="m-auto text-center text-secondary p-4">
+                    <i class="bi bi-chat-heart display-4"></i>
+                    <p class="mt-2">Select a chat to start messaging.</p>
+                </div>
+            }
+            else
+            {
+                <div class="thread-header">
+                    <a href="messages" class="btn btn-light btn-sm d-md-none" aria-label="Back to chats"><i class="bi bi-arrow-left"></i></a>
+                    @if (other is not null)
+                    {
+                        <a href="profile/@other.Id" class="d-flex align-items-center gap-2 text-body text-decoration-none">
+                            <Avatar User="other" Size="40" />
+                            <div>
+                                <div class="fw-semibold">@other.DisplayName</div>
+                                <div class="small text-secondary">@(otherTyping ? "typing..." : "View profile")</div>
+                            </div>
+                        </a>
+                    }
+                </div>
+
+                <div class="thread-body" @ref="threadBody">
+                    @if (hasOlder)
+                    {
+                        <div class="text-center mb-2"><button class="btn btn-light btn-sm" @onclick="LoadOlder">Load earlier messages</button></div>
+                    }
+                    @if (messages is null)
+                    {
+                        <div class="text-center text-secondary small">Loading...</div>
+                    }
+                    else if (messages.Count == 0 && other is not null)
+                    {
+                        <div class="text-center text-secondary my-5">
+                            <Avatar User="other" Size="72" />
+                            <p class="mt-2">Say hi to @other.DisplayName!</p>
+                        </div>
+                    }
+                    else
+                    {
+                        foreach (var m in messages)
+                        {
+                            var mine = m.SenderId == myId;
+                            <div class="msg-row @(mine ? "mine" : "")" @key="m.Id">
+                                <div class="msg-bubble" title="@Format.TimeAgo(m.SentAt)">@m.Content</div>
+                            </div>
+                        }
+                        if (LastMine?.ReadAt is not null)
+                        {
+                            <div class="text-end small text-secondary me-1">Seen</div>
+                        }
+                    }
+                    @if (otherTyping)
+                    {
+                        <div class="msg-row"><div class="msg-bubble typing"><span></span><span></span><span></span></div></div>
+                    }
+                </div>
+
+                <ErrorAlert Message="@error" OnDismiss="() => error = null" />
+
+                <form class="thread-input" @onsubmit="Send" @onsubmit:preventDefault>
+                    <input class="form-control rounded-pill bg-light" placeholder="Aa" maxlength="4000" autocomplete="off"
+                           @bind="draft" @bind:event="oninput" @bind:after="OnDraftChanged" />
+                    <button class="btn btn-link fs-4 p-0" type="submit" disabled="@(string.IsNullOrWhiteSpace(draft))" aria-label="Send">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? UserId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string myId = "";
+    private List<ConversationDto>? conversations;
+    private UserSummaryDto? other;
+    private List<MessageDto>? messages;
+    private bool hasOlder, otherTyping, scrollToBottom;
+    private string draft = "";
+    private string? error;
+    private ElementReference threadBody;
+    private DateTime lastTypingSent = DateTime.MinValue;
+    private CancellationTokenSource? typingTimeout;
+
+    private MessageDto? LastMine => messages?.LastOrDefault(m => m.SenderId == myId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        myId = (await AuthState).User.UserId();
+        Realtime.MessageReceived += OnMessage;
+        Realtime.MessagesRead += OnMessagesRead;
+        Realtime.UserTyping += OnUserTyping;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Realtime.ActiveChatUserId = UserId;
+        other = null;
+        messages = null;
+        otherTyping = false;
+        error = null;
+
+        if (UserId is not null)
+        {
+            try
+            {
+                var profile = await Api.GetProfileAsync(UserId);
+                other = new UserSummaryDto(profile.Id, profile.DisplayName, profile.AvatarUrl);
+                var page = await Api.GetThreadAsync(UserId);
+                messages = page.Items.ToList();
+                hasOlder = page.HasMore;
+                scrollToBottom = true;
+                await MarkReadAsync();
+            }
+            catch (ApiException ex)
+            {
+                error = ex.Message;
+                messages = [];
+            }
+        }
+
+        await LoadConversationsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (scrollToBottom && messages is not null)
+        {
+            scrollToBottom = false;
+            try { await JS.InvokeVoidAsync("socialhub.scrollToBottom", threadBody); }
+            catch (JSException) { /* element not rendered yet */ }
+        }
+    }
+
+    private async Task LoadConversationsAsync()
+    {
+        try { conversations = await Api.GetConversationsAsync(); }
+        catch (ApiException) { conversations ??= []; }
+    }
+
+    private async Task LoadOlder()
+    {
+        if (UserId is null || messages is not { Count: > 0 }) return;
+        var page = await Api.GetThreadAsync(UserId, messages[0].Id);
+        messages.InsertRange(0, page.Items);
+        hasOlder = page.HasMore;
+    }
+
+    private async Task Send()
+    {
+        var text = draft.Trim();
+        if (UserId is null || text.Length == 0) return;
+        draft = "";
+        try
+        {
+            var sent = await Api.SendMessageAsync(UserId, text);
+            AddMessage(sent); // the hub echo is de-duplicated by id
+            await LoadConversationsAsync();
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+            draft = text;
+        }
+    }
+
+    private async Task OnDraftChanged()
+    {
+        // Throttle typing signals to one every 2 seconds.
+        if (UserId is null || string.IsNullOrEmpty(draft) || DateTime.UtcNow - lastTypingSent < TimeSpan.FromSeconds(2)) return;
+        lastTypingSent = DateTime.UtcNow;
+        await Realtime.SendTypingAsync(UserId);
+    }
+
+    private void AddMessage(MessageDto m)
+    {
+        if (messages is null || messages.Any(x => x.Id == m.Id)) return;
+        messages.Add(m);
+        scrollToBottom = true;
+    }
+
+    private async Task MarkReadAsync()
+    {
+        if (UserId is null) return;
+        try
+        {
+            await Api.MarkThreadReadAsync(UserId);
+            await Realtime.RefreshCountsAsync();
+        }
+        catch (ApiException) { /* not critical */ }
+    }
+
+    // ----- real-time handlers (called on a SignalR thread) -----
+
+    private void OnMessage(MessageDto m) => InvokeAsync(async () =>
+    {
+        var inThisChat = UserId is not null &&
+                         ((m.SenderId == UserId && m.RecipientId == myId) || (m.SenderId == myId && m.RecipientId == UserId));
+        if (inThisChat)
+        {
+            AddMessage(m);
+            if (m.SenderId == UserId)
+            {
+                otherTyping = false;
+                await MarkReadAsync();
+            }
+        }
+        await LoadConversationsAsync();
+        StateHasChanged();
+    });
+
+    private void OnMessagesRead(string readerId) => InvokeAsync(() =>
+    {
+        if (readerId != UserId || messages is null) return;
+        var now = DateTime.UtcNow;
+        messages = messages.Select(m => m.SenderId == myId && m.ReadAt is null ? m with { ReadAt = now } : m).ToList();
+        StateHasChanged();
+    });
+
+    private void OnUserTyping(string senderId) => InvokeAsync(async () =>
+    {
+        if (senderId != UserId) return;
+        otherTyping = true;
+        scrollToBottom = true;
+        StateHasChanged();
+
+        typingTimeout?.Cancel();
+        typingTimeout = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(3500, typingTimeout.Token);
+            otherTyping = false;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
+    });
+
+    public void Dispose()
+    {
+        Realtime.ActiveChatUserId = null;
+        Realtime.MessageReceived -= OnMessage;
+        Realtime.MessagesRead -= OnMessagesRead;
+        Realtime.UserTyping -= OnUserTyping;
+        typingTimeout?.Cancel();
+    }
+}

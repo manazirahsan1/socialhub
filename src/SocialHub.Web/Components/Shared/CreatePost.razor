@@ -1,0 +1,96 @@
+@inject ApiClient Api
+
+<div class="card feed-card">
+    <div class="card-body">
+        <div class="d-flex gap-2">
+            <Avatar User="Me" Size="40" />
+            <textarea class="form-control composer" rows="@(text.Length > 60 ? 3 : 1)" maxlength="5000"
+                      placeholder="What's on your mind, @(FirstName)?" @bind="text" @bind:event="oninput"></textarea>
+        </div>
+
+        @if (previewUrl is not null)
+        {
+            <div class="position-relative mt-3">
+                <img src="@previewUrl" class="img-fluid rounded w-100 post-image" alt="Selected photo" />
+                <button class="btn btn-light btn-sm rounded-circle position-absolute top-0 end-0 m-2" @onclick="ClearImage" aria-label="Remove photo">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        }
+
+        <ErrorAlert Message="@error" OnDismiss="() => error = null" />
+
+        <hr class="my-2" />
+        <div class="d-flex align-items-center">
+            <label class="btn btn-light text-success flex-grow-0 mb-0">
+                <i class="bi bi-image me-1"></i>Photo
+                <InputFile OnChange="OnFileSelected" accept="image/png,image/jpeg,image/gif,image/webp" class="d-none" />
+            </label>
+            <button class="btn btn-primary ms-auto px-4" disabled="@(!CanPost)" @onclick="Submit">
+                @if (posting) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                Post
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const long MaxBytes = 5 * 1024 * 1024;
+
+    [Parameter, EditorRequired] public UserSummaryDto Me { get; set; } = default!;
+    [Parameter] public EventCallback<PostDto> OnCreated { get; set; }
+
+    private string text = "";
+    private byte[]? image;
+    private string? imageName, imageType, previewUrl, error;
+    private bool posting;
+
+    private string FirstName => Me.DisplayName.Split(' ')[0];
+    private bool CanPost => !posting && (!string.IsNullOrWhiteSpace(text) || image is not null);
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        error = null;
+        var file = e.File;
+        if (file.Size > MaxBytes)
+        {
+            error = "Photos must be 5 MB or smaller.";
+            return;
+        }
+
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(MaxBytes).CopyToAsync(ms);
+        image = ms.ToArray();
+        imageName = file.Name;
+        imageType = file.ContentType;
+        previewUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(image)}";
+    }
+
+    private void ClearImage()
+    {
+        image = null;
+        imageName = imageType = previewUrl = null;
+    }
+
+    private async Task Submit()
+    {
+        if (!CanPost) return;
+        posting = true;
+        error = null;
+        try
+        {
+            var post = await Api.CreatePostAsync(text.Trim(), image, imageName, imageType);
+            text = "";
+            ClearImage();
+            await OnCreated.InvokeAsync(post);
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            posting = false;
+        }
+    }
+}

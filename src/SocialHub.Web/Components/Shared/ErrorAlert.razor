@@ -1,0 +1,15 @@
+@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="alert alert-danger alert-dismissible py-2 small" role="alert">
+        @Message
+        @if (OnDismiss.HasDelegate)
+        {
+            <button type="button" class="btn-close btn-sm" aria-label="Close" @onclick="OnDismiss"></button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public EventCallback OnDismiss { get; set; }
+}

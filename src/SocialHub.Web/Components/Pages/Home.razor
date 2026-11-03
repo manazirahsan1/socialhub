@@ -1,0 +1,87 @@
+@page "/"
+@inject ApiClient Api
+
+<PageTitle>News feed · SocialHub</PageTitle>
+<h1 class="visually-hidden">News feed</h1>
+
+<CreatePost Me="me" OnCreated="OnCreated" />
+
+<ErrorAlert Message="@error" />
+
+@if (posts is null)
+{
+    <PostSkeleton />
+    <PostSkeleton />
+}
+else if (posts.Count == 0)
+{
+    <div class="card feed-card text-center p-5">
+        <i class="bi bi-newspaper display-5 text-secondary"></i>
+        <h2 class="h5 mt-3">Your feed is empty</h2>
+        <p class="text-secondary">Write your first post, or <a href="friends">add some friends</a> to see theirs here.</p>
+    </div>
+}
+else
+{
+    foreach (var p in posts)
+    {
+        <PostCard @key="p.Id" Post="p" Me="me" OnDeleted="OnDeleted" />
+    }
+
+    if (hasMore)
+    {
+        <div class="text-center my-3">
+            <button class="btn btn-light" disabled="@loading" @onclick="LoadMore">
+                @if (loading) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                Load more
+            </button>
+        </div>
+    }
+    else
+    {
+        <p class="text-center text-secondary small my-4">You're all caught up.</p>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private UserSummaryDto me = new("", "", null);
+    private List<PostDto>? posts;
+    private bool hasMore, loading;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        me = (await AuthState).User.ToSummary();
+        try
+        {
+            var page = await Api.GetFeedAsync();
+            posts = page.Items.ToList();
+            hasMore = page.HasMore;
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+            posts = [];
+        }
+    }
+
+    private async Task LoadMore()
+    {
+        if (posts is null || posts.Count == 0) return;
+        loading = true;
+        try
+        {
+            var page = await Api.GetFeedAsync(before: posts[^1].Id);
+            posts.AddRange(page.Items);
+            hasMore = page.HasMore;
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+
+    private void OnCreated(PostDto post) => posts?.Insert(0, post);
+
+    private void OnDeleted(PostDto post) => posts?.RemoveAll(p => p.Id == post.Id);
+}

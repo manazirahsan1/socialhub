@@ -1,0 +1,155 @@
+@page "/profile/{UserId}"
+@inject ApiClient Api
+
+<PageTitle>@(profile?.DisplayName ?? "Profile") · SocialHub</PageTitle>
+
+@if (notFound)
+{
+    <div class="card feed-card p-5 text-center">
+        <h1 class="h5">This profile isn't available</h1>
+        <a href="" class="btn btn-primary mt-2">Go to News feed</a>
+    </div>
+}
+else if (profile is null)
+{
+    <PostSkeleton />
+}
+else
+{
+    <section class="card feed-card profile-header overflow-hidden">
+        <div class="cover" style="background:linear-gradient(135deg, hsl(@Format.Hue(profile.Id) 60% 55%), hsl(@((Format.Hue(profile.Id) + 60) % 360) 60% 45%))"></div>
+        <div class="card-body pt-0">
+            <div class="d-flex flex-column flex-md-row align-items-center align-items-md-end gap-3 profile-top">
+                <div class="profile-avatar"><Avatar User="Summary" Size="140" /></div>
+                <div class="flex-grow-1 text-center text-md-start">
+                    <h1 class="h3 mb-0">@profile.DisplayName</h1>
+                    <div class="text-secondary">
+                        @profile.FriendCount @(profile.FriendCount == 1 ? "friend" : "friends") · @profile.PostCount @(profile.PostCount == 1 ? "post" : "posts")
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <FriendButton UserId="@profile.Id" State="profile.Friendship" RequestId="profile.PendingRequestId" OnChanged="OnFriendshipChanged" />
+                    @if (profile.Friendship != FriendshipState.Self)
+                    {
+                        <a class="btn btn-light" href="messages/@profile.Id"><i class="bi bi-messenger me-1"></i>Message</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="row g-3">
+        <div class="col-md-5">
+            <div class="card feed-card">
+                <div class="card-body">
+                    <h2 class="h6 fw-bold">Intro</h2>
+                    @if (!string.IsNullOrWhiteSpace(profile.Bio))
+                    {
+                        <p class="text-center">@profile.Bio</p>
+                    }
+                    <p class="small text-secondary mb-0"><i class="bi bi-clock me-1"></i>Joined @profile.JoinedAt.ToString("MMMM yyyy")</p>
+                </div>
+            </div>
+            <div class="card feed-card">
+                <div class="card-body">
+                    <h2 class="h6 fw-bold">Friends</h2>
+                    @if (friends is { Count: > 0 })
+                    {
+                        <div class="friend-grid">
+                            @foreach (var f in friends.Take(9))
+                            {
+                                <a href="profile/@f.Id" class="text-decoration-none text-body text-center small">
+                                    <Avatar User="f" Size="64" />
+                                    <div class="text-truncate">@f.DisplayName</div>
+                                </a>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="small text-secondary mb-0">No friends to show.</p>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-7">
+            @if (profile.Friendship == FriendshipState.Self)
+            {
+                <CreatePost Me="Summary" OnCreated="p => posts?.Insert(0, p)" />
+            }
+            @if (posts is null)
+            {
+                <PostSkeleton />
+            }
+            else if (posts.Count == 0)
+            {
+                <div class="card feed-card p-4 text-center text-secondary">No posts yet.</div>
+            }
+            else
+            {
+                foreach (var p in posts)
+                {
+                    <PostCard @key="p.Id" Post="p" Me="me" OnDeleted="d => posts.RemoveAll(x => x.Id == d.Id)" />
+                }
+                @if (hasMore)
+                {
+                    <div class="text-center my-3"><button class="btn btn-light" @onclick="LoadMore">Load more</button></div>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private UserSummaryDto me = new("", "", null);
+    private ProfileDto? profile;
+    private List<PostDto>? posts;
+    private List<UserSummaryDto>? friends;
+    private bool hasMore, notFound;
+
+    private UserSummaryDto Summary => new(profile!.Id, profile.DisplayName, profile.AvatarUrl);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        me = (await AuthState).User.ToSummary();
+        profile = null;
+        posts = null;
+        friends = null;
+        notFound = false;
+
+        try
+        {
+            profile = await Api.GetProfileAsync(UserId);
+        }
+        catch (ApiException)
+        {
+            notFound = true;
+            return;
+        }
+
+        var postsTask = Api.GetUserPostsAsync(UserId);
+        var friendsTask = Api.GetFriendsAsync(UserId);
+        var page = await postsTask;
+        posts = page.Items.ToList();
+        hasMore = page.HasMore;
+        friends = await friendsTask;
+    }
+
+    private async Task LoadMore()
+    {
+        if (posts is not { Count: > 0 }) return;
+        var page = await Api.GetUserPostsAsync(UserId, posts[^1].Id);
+        posts.AddRange(page.Items);
+        hasMore = page.HasMore;
+    }
+
+    private async Task OnFriendshipChanged(FriendshipStateDto state)
+    {
+        // Reload so counts and the request id stay accurate.
+        profile = await Api.GetProfileAsync(UserId);
+        friends = await Api.GetFriendsAsync(UserId);
+    }
+}

@@ -1,0 +1,81 @@
+@page "/login"
+@layout AuthLayout
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Log in · SocialHub</PageTitle>
+
+<h1 class="h4 mb-3">Log in</h1>
+
+<EditForm Model="model" OnValidSubmit="Submit" FormName="login">
+    <DataAnnotationsValidator />
+    <div class="mb-3">
+        <InputText class="form-control form-control-lg" @bind-Value="model.Email" placeholder="Email address" autocomplete="username" />
+        <ValidationMessage For="() => model.Email" />
+    </div>
+    <div class="mb-3">
+        <InputText type="password" class="form-control form-control-lg" @bind-Value="model.Password" placeholder="Password" autocomplete="current-password" />
+        <ValidationMessage For="() => model.Password" />
+    </div>
+
+    <ErrorAlert Message="@error" />
+
+    <button class="btn btn-primary btn-lg w-100" type="submit" disabled="@busy">
+        @if (busy) { <span class="spinner-border spinner-border-sm me-2"></span> }
+        Log in
+    </button>
+</EditForm>
+
+<hr class="my-4" />
+<div class="text-center">
+    <a class="btn btn-success btn-lg px-4" href="register">Create new account</a>
+</div>
+
+<div class="alert alert-light border small mt-4 mb-0">
+    <strong>Demo accounts</strong> (development seed): alice@demo.local, bob@demo.local, carol@demo.local, dave@demo.local
+    · password <code>Demo@12345</code>
+    <button class="btn btn-link btn-sm p-0 ms-1" type="button" @onclick="FillDemo">Use Alice</button>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private readonly LoginRequest model = new();
+    private string? error;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if ((await AuthState).User.Identity?.IsAuthenticated == true) GoBack();
+    }
+
+    private void FillDemo()
+    {
+        model.Email = "alice@demo.local";
+        model.Password = "Demo@12345";
+    }
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            await Api.LoginAsync(model);
+            GoBack();
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        catch (HttpRequestException) { error = "Can't reach the API. Is SocialHub.Api running?"; }
+        finally { busy = false; }
+    }
+
+    private void GoBack()
+    {
+        // Only allow local return URLs, to avoid open redirects.
+        var target = !string.IsNullOrEmpty(ReturnUrl) && !ReturnUrl.Contains("://") && !ReturnUrl.StartsWith("//")
+            ? ReturnUrl.TrimStart('/')
+            : "";
+        Nav.NavigateTo(target, replace: true);
+    }
+}

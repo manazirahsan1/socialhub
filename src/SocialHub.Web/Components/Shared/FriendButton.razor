@@ -1,0 +1,73 @@
+@inject ApiClient Api
+
+@switch (State)
+{
+    case FriendshipState.Self:
+        <a class="btn btn-light" href="settings"><i class="bi bi-pencil-fill me-1"></i>Edit profile</a>
+        break;
+    case FriendshipState.None:
+        <button class="btn btn-primary" disabled="@busy" @onclick="Add"><i class="bi bi-person-plus-fill me-1"></i>Add friend</button>
+        break;
+    case FriendshipState.RequestSent:
+        <button class="btn btn-light" disabled="@busy" @onclick="Cancel"><i class="bi bi-person-x-fill me-1"></i>Cancel request</button>
+        break;
+    case FriendshipState.RequestReceived:
+        <div class="btn-group">
+            <button class="btn btn-primary" disabled="@busy" @onclick="Accept">Confirm request</button>
+            <button class="btn btn-light" disabled="@busy" @onclick="Cancel">Delete</button>
+        </div>
+        break;
+    case FriendshipState.Friends:
+        <div class="btn-group">
+            <button class="btn btn-light" disabled><i class="bi bi-person-check-fill me-1"></i>Friends</button>
+            <button class="btn btn-light" disabled="@busy" @onclick="Unfriend" title="Unfriend"><i class="bi bi-person-dash"></i></button>
+        </div>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public string UserId { get; set; } = "";
+    [Parameter] public FriendshipState State { get; set; }
+    [Parameter] public int? RequestId { get; set; }
+    [Parameter] public EventCallback<FriendshipStateDto> OnChanged { get; set; }
+
+    private bool busy;
+
+    private Task Add() => Run(async () => await Api.SendFriendRequestAsync(UserId));
+
+    private Task Cancel() => Run(async () =>
+    {
+        if (RequestId is int id) await Api.DeclineFriendRequestAsync(id);
+        return new FriendshipStateDto(FriendshipState.None, null);
+    });
+
+    private Task Accept() => Run(async () =>
+    {
+        if (RequestId is int id) await Api.AcceptFriendRequestAsync(id);
+        return new FriendshipStateDto(FriendshipState.Friends, null);
+    });
+
+    private Task Unfriend() => Run(async () =>
+    {
+        await Api.UnfriendAsync(UserId);
+        return new FriendshipStateDto(FriendshipState.None, null);
+    });
+
+    private async Task Run(Func<Task<FriendshipStateDto>> action)
+    {
+        busy = true;
+        try
+        {
+            var result = await action();
+            await OnChanged.InvokeAsync(result);
+        }
+        catch (ApiException)
+        {
+            // Leave the button as it was; the profile will reload on next visit.
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

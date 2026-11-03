@@ -1,0 +1,40 @@
+@page "/post/{Id:int}"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Post · SocialHub</PageTitle>
+
+@if (notFound)
+{
+    <div class="card feed-card p-5 text-center">
+        <h1 class="h5">This post isn't available</h1>
+        <p class="text-secondary">It may have been deleted.</p>
+        <a href="" class="btn btn-primary">Go to News feed</a>
+    </div>
+}
+else if (post is null)
+{
+    <PostSkeleton />
+}
+else
+{
+    <PostCard @key="post.Id" Post="post" Me="me" StartWithComments="true" OnDeleted="@(_ => Nav.NavigateTo(""))" />
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private UserSummaryDto me = new("", "", null);
+    private PostDto? post;
+    private bool notFound;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        me = (await AuthState).User.ToSummary();
+        post = null;
+        notFound = false;
+        try { post = await Api.GetPostAsync(Id); }
+        catch (ApiException) { notFound = true; }
+    }
+}

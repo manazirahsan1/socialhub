@@ -1,0 +1,110 @@
+@page "/settings"
+@inject ApiClient Api
+
+<PageTitle>Settings · SocialHub</PageTitle>
+
+<div class="card feed-card">
+    <div class="card-body">
+        <h1 class="h4 mb-4">Profile settings</h1>
+
+        @if (model is null)
+        {
+            <div class="text-center py-3"><span class="spinner-border text-secondary"></span></div>
+        }
+        else
+        {
+            <div class="d-flex align-items-center gap-3 mb-4">
+                <Avatar User="me" Size="96" />
+                <div>
+                    <label class="btn btn-light mb-1">
+                        @if (uploading) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        <i class="bi bi-camera-fill me-1"></i>Change profile picture
+                        <InputFile OnChange="UploadAvatar" accept="image/png,image/jpeg,image/gif,image/webp" class="d-none" />
+                    </label>
+                    <div class="small text-secondary">JPG, PNG, GIF or WEBP, up to 5 MB.</div>
+                </div>
+            </div>
+
+            <EditForm Model="model" OnValidSubmit="Save" FormName="profile">
+                <DataAnnotationsValidator />
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" for="displayName">Name</label>
+                    <InputText id="displayName" class="form-control" @bind-Value="model.DisplayName" />
+                    <ValidationMessage For="() => model.DisplayName" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold" for="bio">Bio</label>
+                    <InputTextArea id="bio" class="form-control" rows="3" @bind-Value="model.Bio" placeholder="Describe who you are" />
+                    <div class="form-text">@(model.Bio?.Length ?? 0)/500</div>
+                    <ValidationMessage For="() => model.Bio" />
+                </div>
+
+                <ErrorAlert Message="@error" OnDismiss="() => error = null" />
+                @if (saved)
+                {
+                    <div class="alert alert-success py-2 small">Profile saved.</div>
+                }
+
+                <button class="btn btn-primary" type="submit" disabled="@saving">Save changes</button>
+            </EditForm>
+        }
+    </div>
+</div>
+
+@code {
+    private UpdateProfileRequest? model;
+    private UserSummaryDto me = new("", "", null);
+    private string? error;
+    private bool saving, saved, uploading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var profile = await Api.GetMyProfileAsync();
+            me = new UserSummaryDto(profile.Id, profile.DisplayName, profile.AvatarUrl);
+            model = new UpdateProfileRequest { DisplayName = profile.DisplayName, Bio = profile.Bio };
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private async Task Save()
+    {
+        if (model is null) return;
+        saving = true;
+        saved = false;
+        error = null;
+        try
+        {
+            var profile = await Api.UpdateProfileAsync(model);
+            me = me with { DisplayName = profile.DisplayName };
+            saved = true;
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        finally { saving = false; }
+    }
+
+    private async Task UploadAvatar(InputFileChangeEventArgs e)
+    {
+        const long max = 5 * 1024 * 1024;
+        error = null;
+        if (e.File.Size > max)
+        {
+            error = "Profile pictures must be 5 MB or smaller.";
+            return;
+        }
+
+        uploading = true;
+        try
+        {
+            using var ms = new MemoryStream();
+            await e.File.OpenReadStream(max).CopyToAsync(ms);
+            me = await Api.UploadAvatarAsync(ms.ToArray(), e.File.Name, e.File.ContentType);
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        finally { uploading = false; }
+    }
+}

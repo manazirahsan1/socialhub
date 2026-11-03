@@ -1,0 +1,45 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+<AuthorizeView>
+    <Authorized>
+        <RealtimeConnector />
+        <TopBar />
+        <div class="container-xxl app-shell">
+            <div class="row g-4">
+                <aside class="col-lg-3 d-none d-lg-block">
+                    <LeftNav />
+                </aside>
+                <main class="col-12 @(Wide ? "col-lg-9" : "col-lg-6")">
+                    @Body
+                </main>
+                @if (!Wide)
+                {
+                    <aside class="col-lg-3 d-none d-lg-block">
+                        <ContactsSidebar />
+                    </aside>
+                }
+            </div>
+        </div>
+        <ToastHost />
+    </Authorized>
+    <Authorizing>
+        <div class="d-flex justify-content-center align-items-center vh-100">
+            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+        </div>
+    </Authorizing>
+    <NotAuthorized>
+        <RedirectToLogin />
+    </NotAuthorized>
+</AuthorizeView>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    // The messenger uses the right-hand column too.
+    private bool Wide => Nav.ToBaseRelativePath(Nav.Uri).StartsWith("messages", StringComparison.OrdinalIgnoreCase);
+}

@@ -1,0 +1,222 @@
+@inject ApiClient Api
+
+<article class="card feed-card">
+    <div class="card-body pb-1">
+        <div class="d-flex align-items-start gap-2">
+            <a href="profile/@post.Author.Id"><Avatar User="post.Author" Size="40" /></a>
+            <div class="flex-grow-1">
+                <a href="profile/@post.Author.Id" class="fw-semibold text-body text-decoration-none">@post.Author.DisplayName</a>
+                <div class="small text-secondary">
+                    <a href="post/@post.Id" class="text-secondary text-decoration-none">@Format.TimeAgo(post.CreatedAt)</a>
+                    @if (post.UpdatedAt is not null) { <span> · edited</span> }
+                </div>
+            </div>
+            @if (post.IsMine)
+            {
+                <div class="dropdown">
+                    <button class="btn btn-light btn-sm rounded-circle" @onclick="() => menuOpen = !menuOpen" aria-label="Post options">
+                        <i class="bi bi-three-dots"></i>
+                    </button>
+                    @if (menuOpen)
+                    {
+                        <div class="dropdown-menu dropdown-menu-end show" style="right:0;left:auto">
+                            <button class="dropdown-item" @onclick="StartEdit"><i class="bi bi-pencil me-2"></i>Edit post</button>
+                            <button class="dropdown-item text-danger" @onclick="Delete"><i class="bi bi-trash me-2"></i>Delete post</button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (editing)
+        {
+            <textarea class="form-control mt-2" rows="3" maxlength="5000" @bind="editText"></textarea>
+            <div class="d-flex gap-2 justify-content-end mt-2">
+                <button class="btn btn-light btn-sm" @onclick="() => editing = false">Cancel</button>
+                <button class="btn btn-primary btn-sm" disabled="@(string.IsNullOrWhiteSpace(editText))" @onclick="SaveEdit">Save</button>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(post.Content))
+        {
+            <p class="post-text mt-2 mb-2">@post.Content</p>
+        }
+    </div>
+
+    @if (post.ImageUrl is not null)
+    {
+        <img src="@Api.AssetUrl(post.ImageUrl)" class="post-image w-100" alt="Photo posted by @post.Author.DisplayName" loading="lazy" />
+    }
+
+    <div class="card-body pt-2 pb-1">
+        <ErrorAlert Message="@error" OnDismiss="() => error = null" />
+
+        @if (post.LikeCount > 0 || post.CommentCount > 0)
+        {
+            <div class="d-flex justify-content-between small text-secondary mb-2">
+                <span>
+                    @if (post.LikeCount > 0)
+                    {
+                        <span class="like-bubble"><i class="bi bi-hand-thumbs-up-fill"></i></span><span class="ms-1">@post.LikeCount</span>
+                    }
+                </span>
+                @if (post.CommentCount > 0)
+                {
+                    <button class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" @onclick="ToggleComments">
+                        @post.CommentCount @(post.CommentCount == 1 ? "comment" : "comments")
+                    </button>
+                }
+            </div>
+        }
+
+        <div class="d-flex border-top border-bottom py-1 gap-1">
+            <button class="btn btn-light action-btn flex-fill @(post.LikedByMe ? "liked" : "")" disabled="@liking" @onclick="ToggleLike">
+                <i class="bi @(post.LikedByMe ? "bi-hand-thumbs-up-fill" : "bi-hand-thumbs-up") me-1"></i>Like
+            </button>
+            <button class="btn btn-light action-btn flex-fill" @onclick="ToggleComments">
+                <i class="bi bi-chat me-1"></i>Comment
+            </button>
+        </div>
+
+        @if (showComments)
+        {
+            <div class="comments py-2">
+                @if (comments is null)
+                {
+                    <div class="text-center py-2"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                }
+                else
+                {
+                    foreach (var c in comments)
+                    {
+                        <div class="d-flex gap-2 mb-2" @key="c.Id">
+                            <a href="profile/@c.Author.Id"><Avatar User="c.Author" Size="32" /></a>
+                            <div>
+                                <div class="comment-bubble">
+                                    <a href="profile/@c.Author.Id" class="fw-semibold small text-body text-decoration-none">@c.Author.DisplayName</a>
+                                    <div class="small">@c.Content</div>
+                                </div>
+                                <div class="small text-secondary ms-2">
+                                    @Format.TimeAgo(c.CreatedAt)
+                                    @if (c.IsMine || post.IsMine)
+                                    {
+                                        <button class="btn btn-link btn-sm p-0 ms-2 text-secondary" @onclick="() => DeleteComment(c)">Delete</button>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+
+                <form class="d-flex gap-2 mt-2" @onsubmit="AddComment" @onsubmit:preventDefault>
+                    <Avatar User="Me" Size="32" />
+                    <input class="form-control form-control-sm rounded-pill bg-light" placeholder="Write a comment..."
+                           maxlength="2000" @bind="newComment" @bind:event="oninput" />
+                    <button class="btn btn-link p-0" type="submit" disabled="@(string.IsNullOrWhiteSpace(newComment))" aria-label="Send comment">
+                        <i class="bi bi-send-fill"></i>
+                    </button>
+                </form>
+            </div>
+        }
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public PostDto Post { get; set; } = default!;
+    [Parameter, EditorRequired] public UserSummaryDto Me { get; set; } = default!;
+    [Parameter] public bool StartWithComments { get; set; }
+    [Parameter] public EventCallback<PostDto> OnDeleted { get; set; }
+
+    // Local copy: likes/comments/edits update it without being overwritten when the parent re-renders.
+    private PostDto post = default!;
+    private bool menuOpen, editing, liking, showComments;
+    private string editText = "", newComment = "";
+    private string? error;
+    private List<CommentDto>? comments;
+
+    protected override void OnParametersSet()
+    {
+        if (post is null || post.Id != Post.Id) post = Post;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        post = Post; // OnInitialized runs before OnParametersSet
+        if (StartWithComments) await ToggleComments();
+    }
+
+    private async Task ToggleLike()
+    {
+        liking = true;
+        try
+        {
+            var result = await Api.ToggleLikeAsync(post.Id);
+            post = post with { LikedByMe = result.Liked, LikeCount = result.LikeCount };
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        finally { liking = false; }
+    }
+
+    private async Task ToggleComments()
+    {
+        showComments = !showComments;
+        if (showComments && comments is null)
+        {
+            try { comments = await Api.GetCommentsAsync(post.Id); }
+            catch (ApiException ex) { error = ex.Message; comments = []; }
+        }
+    }
+
+    private async Task AddComment()
+    {
+        var text = newComment.Trim();
+        if (text.Length == 0) return;
+        try
+        {
+            var c = await Api.AddCommentAsync(post.Id, text);
+            comments ??= [];
+            comments.Add(c);
+            newComment = "";
+            post = post with { CommentCount = post.CommentCount + 1 };
+        }
+        catch (ApiException ex) { error = ex.Message; }
+    }
+
+    private async Task DeleteComment(CommentDto c)
+    {
+        try
+        {
+            await Api.DeleteCommentAsync(c.Id);
+            comments?.Remove(c);
+            post = post with { CommentCount = Math.Max(0, post.CommentCount - 1) };
+        }
+        catch (ApiException ex) { error = ex.Message; }
+    }
+
+    private void StartEdit()
+    {
+        menuOpen = false;
+        editText = post.Content;
+        editing = true;
+    }
+
+    private async Task SaveEdit()
+    {
+        try
+        {
+            post = await Api.UpdatePostAsync(post.Id, editText.Trim());
+            editing = false;
+        }
+        catch (ApiException ex) { error = ex.Message; }
+    }
+
+    private async Task Delete()
+    {
+        menuOpen = false;
+        try
+        {
+            await Api.DeletePostAsync(post.Id);
+            await OnDeleted.InvokeAsync(post);
+        }
+        catch (ApiException ex) { error = ex.Message; }
+    }
+}

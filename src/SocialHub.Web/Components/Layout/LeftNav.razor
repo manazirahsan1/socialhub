@@ -1,0 +1,23 @@
+<AuthorizeView>
+    <nav class="side-nav sticky-side">
+        <NavLink class="side-link" href="@($"profile/{context.User.UserId()}")">
+            <span class="side-icon"><i class="bi bi-person-circle"></i></span> @context.User.Identity?.Name
+        </NavLink>
+        <NavLink class="side-link" href="" Match="NavLinkMatch.All">
+            <span class="side-icon"><i class="bi bi-house-door-fill"></i></span> News feed
+        </NavLink>
+        <NavLink class="side-link" href="friends">
+            <span class="side-icon"><i class="bi bi-people-fill"></i></span> Friends
+        </NavLink>
+        <NavLink class="side-link" href="messages">
+            <span class="side-icon"><i class="bi bi-chat-dots-fill"></i></span> Messages
+        </NavLink>
+        <NavLink class="side-link" href="notifications">
+            <span class="side-icon"><i class="bi bi-bell-fill"></i></span> Notifications
+        </NavLink>
+        <NavLink class="side-link" href="settings">
+            <span class="side-icon"><i class="bi bi-gear-fill"></i></span> Settings
+        </NavLink>
+        <p class="text-secondary small mt-4 px-2">SocialHub · ASP.NET Core · Blazor · SignalR</p>
+    </nav>
+</AuthorizeView>

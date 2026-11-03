@@ -1,0 +1,54 @@
+@page "/register"
+@layout AuthLayout
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Sign up · SocialHub</PageTitle>
+
+<h1 class="h4 mb-1">Create a new account</h1>
+<p class="text-secondary mb-3">It's quick and easy.</p>
+
+<EditForm Model="model" OnValidSubmit="Submit" FormName="register">
+    <DataAnnotationsValidator />
+    <div class="mb-3">
+        <InputText class="form-control" @bind-Value="model.DisplayName" placeholder="Your name" autocomplete="name" />
+        <ValidationMessage For="() => model.DisplayName" />
+    </div>
+    <div class="mb-3">
+        <InputText class="form-control" @bind-Value="model.Email" placeholder="Email address" autocomplete="email" />
+        <ValidationMessage For="() => model.Email" />
+    </div>
+    <div class="mb-3">
+        <InputText type="password" class="form-control" @bind-Value="model.Password" placeholder="New password (8+ characters, with upper, lower and a digit)" autocomplete="new-password" />
+        <ValidationMessage For="() => model.Password" />
+    </div>
+
+    <ErrorAlert Message="@error" />
+
+    <button class="btn btn-success btn-lg w-100" type="submit" disabled="@busy">
+        @if (busy) { <span class="spinner-border spinner-border-sm me-2"></span> }
+        Sign up
+    </button>
+</EditForm>
+
+<p class="text-center mt-3 mb-0"><a href="login">Already have an account?</a></p>
+
+@code {
+    private readonly RegisterRequest model = new();
+    private string? error;
+    private bool busy;
+
+    private async Task Submit()
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            await Api.RegisterAsync(model);
+            Nav.NavigateTo("", replace: true);
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        catch (HttpRequestException) { error = "Can't reach the API. Is SocialHub.Api running?"; }
+        finally { busy = false; }
+    }
+}

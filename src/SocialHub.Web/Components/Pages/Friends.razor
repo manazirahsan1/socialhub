@@ -1,0 +1,164 @@
+@page "/friends"
+@inject ApiClient Api
+
+<PageTitle>Friends · SocialHub</PageTitle>
+
+<div class="card feed-card">
+    <div class="card-body">
+        <h1 class="h4 mb-3">Friends</h1>
+        <ul class="nav nav-pills mb-3">
+            @foreach (var (key, label) in Tabs)
+            {
+                <li class="nav-item">
+                    <button class="nav-link @(tab == key ? "active" : "")" @onclick="() => tab = key">
+                        @label
+                        @if (key == "requests" && incoming.Count > 0) { <span class="badge bg-danger ms-1">@incoming.Count</span> }
+                    </button>
+                </li>
+            }
+        </ul>
+
+        <ErrorAlert Message="@error" OnDismiss="() => error = null" />
+
+        @if (loading)
+        {
+            <div class="text-center py-4"><span class="spinner-border text-secondary"></span></div>
+        }
+        else
+        {
+            switch (tab)
+            {
+                case "requests":
+                    if (incoming.Count == 0 && outgoing.Count == 0)
+                    {
+                        <p class="text-secondary">No pending requests.</p>
+                    }
+                    foreach (var r in incoming)
+                    {
+                        <div class="person-row" @key="r.Id">
+                            <a href="profile/@r.User.Id"><Avatar User="r.User" Size="56" /></a>
+                            <div class="flex-grow-1">
+                                <a href="profile/@r.User.Id" class="fw-semibold text-body text-decoration-none">@r.User.DisplayName</a>
+                                <div class="small text-secondary">Sent you a request · @Format.TimeAgo(r.CreatedAt)</div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" @onclick="() => Accept(r)">Confirm</button>
+                            <button class="btn btn-light btn-sm" @onclick="() => Decline(r)">Delete</button>
+                        </div>
+                    }
+                    if (outgoing.Count > 0)
+                    {
+                        <h2 class="h6 text-secondary mt-4">Sent requests</h2>
+                        foreach (var r in outgoing)
+                        {
+                            <div class="person-row" @key="r.Id">
+                                <a href="profile/@r.User.Id"><Avatar User="r.User" Size="48" /></a>
+                                <div class="flex-grow-1">
+                                    <a href="profile/@r.User.Id" class="fw-semibold text-body text-decoration-none">@r.User.DisplayName</a>
+                                    <div class="small text-secondary">@Format.TimeAgo(r.CreatedAt)</div>
+                                </div>
+                                <button class="btn btn-light btn-sm" @onclick="() => Cancel(r)">Cancel</button>
+                            </div>
+                        }
+                    }
+                    break;
+
+                case "all":
+                    if (friends.Count == 0)
+                    {
+                        <p class="text-secondary">You haven't added any friends yet. Check the suggestions tab.</p>
+                    }
+                    <div class="row g-3">
+                        @foreach (var f in friends)
+                        {
+                            <div class="col-6 col-md-4" @key="f.Id">
+                                <div class="person-tile">
+                                    <a href="profile/@f.Id"><Avatar User="f" Size="72" /></a>
+                                    <a href="profile/@f.Id" class="fw-semibold text-body text-decoration-none d-block text-truncate mt-2">@f.DisplayName</a>
+                                    <a href="messages/@f.Id" class="btn btn-light btn-sm w-100 mt-2">Message</a>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    break;
+
+                case "suggestions":
+                    if (suggestions.Count == 0)
+                    {
+                        <p class="text-secondary">No suggestions right now.</p>
+                    }
+                    <div class="row g-3">
+                        @foreach (var s in suggestions)
+                        {
+                            <div class="col-6 col-md-4" @key="s.Id">
+                                <div class="person-tile">
+                                    <a href="profile/@s.Id"><Avatar User="s" Size="72" /></a>
+                                    <a href="profile/@s.Id" class="fw-semibold text-body text-decoration-none d-block text-truncate mt-2">@s.DisplayName</a>
+                                    @if (sent.Contains(s.Id))
+                                    {
+                                        <button class="btn btn-light btn-sm w-100 mt-2" disabled>Request sent</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-primary btn-sm w-100 mt-2" @onclick="() => Add(s)">Add friend</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    break;
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly (string Key, string Label)[] Tabs =
+        [("requests", "Requests"), ("all", "All friends"), ("suggestions", "Suggestions")];
+
+    private string tab = "requests";
+    private bool loading = true;
+    private string? error;
+    private List<FriendRequestDto> incoming = [], outgoing = [];
+    private List<UserSummaryDto> friends = [], suggestions = [];
+    private readonly HashSet<string> sent = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        if (incoming.Count == 0) tab = friends.Count > 0 ? "all" : "suggestions";
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            incoming = await Api.GetIncomingRequestsAsync();
+            outgoing = await Api.GetOutgoingRequestsAsync();
+            friends = await Api.GetFriendsAsync();
+            suggestions = await Api.GetSuggestionsAsync();
+        }
+        catch (ApiException ex) { error = ex.Message; }
+        finally { loading = false; }
+    }
+
+    private Task Accept(FriendRequestDto r) => Act(() => Api.AcceptFriendRequestAsync(r.Id), reload: true);
+    private Task Decline(FriendRequestDto r) => Act(async () => { await Api.DeclineFriendRequestAsync(r.Id); incoming.Remove(r); });
+    private Task Cancel(FriendRequestDto r) => Act(async () => { await Api.DeclineFriendRequestAsync(r.Id); outgoing.Remove(r); });
+
+    private Task Add(UserSummaryDto s) => Act(async () =>
+    {
+        var result = await Api.SendFriendRequestAsync(s.Id);
+        sent.Add(s.Id);
+        if (result.State == FriendshipState.Friends) await LoadAsync();
+    });
+
+    private async Task Act(Func<Task> action, bool reload = false)
+    {
+        try
+        {
+            await action();
+            if (reload) await LoadAsync();
+        }
+        catch (ApiException ex) { error = ex.Message; }
+    }
+}

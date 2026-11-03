@@ -1,0 +1,19 @@
+@inject ApiClient Api
+
+@if (!string.IsNullOrEmpty(User.AvatarUrl))
+{
+    <img class="avatar" src="@Api.AssetUrl(User.AvatarUrl)" alt="@User.DisplayName"
+         style="width:@(Size)px;height:@(Size)px" />
+}
+else
+{
+    <span class="avatar avatar-initials" title="@User.DisplayName"
+          style="width:@(Size)px;height:@(Size)px;font-size:@(Size * 0.4)px;background:hsl(@Format.Hue(User.Id) 55% 45%)">
+        @Format.Initials(User.DisplayName)
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired] public UserSummaryDto User { get; set; } = default!;
+    [Parameter] public int Size { get; set; } = 40;
+}

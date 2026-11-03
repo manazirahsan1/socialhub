@@ -1,0 +1,87 @@
+@implements IDisposable
+@inject RealtimeService Realtime
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<div class="toast-stack">
+    @foreach (var t in toasts)
+    {
+        <div class="toast-card shadow" @key="t.Id" @onclick="() => Open(t)">
+            <Avatar User="t.User" Size="36" />
+            <div class="small overflow-hidden">
+                <div class="fw-semibold">@t.Title</div>
+                <div class="text-secondary text-truncate">@t.Body</div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private record Toast(Guid Id, UserSummaryDto User, string Title, string Body, string Href);
+
+    private readonly List<Toast> toasts = [];
+    private readonly Dictionary<string, UserSummaryDto> people = [];
+    private string myId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        myId = (await AuthState).User.UserId();
+        Realtime.NotificationReceived += OnNotification;
+        Realtime.MessageReceived += OnMessage;
+    }
+
+    private void OnNotification(NotificationDto n)
+    {
+        var href = n.PostId is int id ? $"post/{id}"
+            : n.Type == NotificationType.FriendRequestReceived ? "friends"
+            : $"profile/{n.Actor.Id}";
+        _ = InvokeAsync(() => ShowAsync(new Toast(Guid.NewGuid(), n.Actor, "Notification", n.Text, href)));
+    }
+
+    private void OnMessage(MessageDto m)
+    {
+        // Ignore messages I sent (from another tab) and the conversation that's already open.
+        if (m.SenderId == myId || m.SenderId == Realtime.ActiveChatUserId) return;
+
+        _ = InvokeAsync(async () =>
+        {
+            if (!people.TryGetValue(m.SenderId, out var sender))
+            {
+                try
+                {
+                    var p = await Api.GetProfileAsync(m.SenderId);
+                    sender = new UserSummaryDto(p.Id, p.DisplayName, p.AvatarUrl);
+                }
+                catch (ApiException)
+                {
+                    sender = new UserSummaryDto(m.SenderId, "Someone", null);
+                }
+                people[m.SenderId] = sender;
+            }
+            await ShowAsync(new Toast(Guid.NewGuid(), sender, sender.DisplayName, m.Content, $"messages/{m.SenderId}"));
+        });
+    }
+
+    private async Task ShowAsync(Toast toast)
+    {
+        toasts.Add(toast);
+        StateHasChanged();
+        await Task.Delay(5000);
+        toasts.Remove(toast);
+        StateHasChanged();
+    }
+
+    private void Open(Toast t)
+    {
+        toasts.Remove(t);
+        Nav.NavigateTo(t.Href);
+    }
+
+    public void Dispose()
+    {
+        Realtime.NotificationReceived -= OnNotification;
+        Realtime.MessageReceived -= OnMessage;
+    }
+}

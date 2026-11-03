@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SocialHub.Api/SocialHub.Api.csproj" />
+    <Project Path="src/SocialHub.Shared/SocialHub.Shared.csproj" />
+    <Project Path="src/SocialHub.Web/SocialHub.Web.csproj" />
+  </Folder>
+</Solution>

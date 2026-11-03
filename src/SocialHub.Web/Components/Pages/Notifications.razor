@@ -1,0 +1,98 @@
+@page "/notifications"
+@implements IDisposable
+@inject ApiClient Api
+@inject RealtimeService Realtime
+@inject NavigationManager Nav
+
+<PageTitle>Notifications · SocialHub</PageTitle>
+
+<div class="card feed-card">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h4 mb-0">Notifications</h1>
+            @if (items?.Any(n => !n.IsRead) == true)
+            {
+                <button class="btn btn-link btn-sm" @onclick="MarkAll">Mark all as read</button>
+            }
+        </div>
+
+        @if (items is null)
+        {
+            <div class="text-center py-4"><span class="spinner-border text-secondary"></span></div>
+        }
+        else if (items.Count == 0)
+        {
+            <p class="text-secondary">You're all caught up. Likes, comments and friend requests will show up here.</p>
+        }
+        else
+        {
+            foreach (var n in items)
+            {
+                <button class="notif-item @(n.IsRead ? "" : "unread")" @key="n.Id" @onclick="() => Open(n)">
+                    <div class="position-relative">
+                        <Avatar User="n.Actor" Size="52" />
+                        <span class="notif-icon @IconClass(n.Type)"><i class="bi @Icon(n.Type)"></i></span>
+                    </div>
+                    <div class="flex-grow-1 text-start">
+                        <div>@n.Text</div>
+                        <div class="small @(n.IsRead ? "text-secondary" : "text-primary fw-semibold")">@Format.TimeAgo(n.CreatedAt)</div>
+                    </div>
+                    @if (!n.IsRead) { <span class="unread-dot"></span> }
+                </button>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private List<NotificationDto>? items;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Realtime.NotificationReceived += OnNotification;
+        try { items = await Api.GetNotificationsAsync(); }
+        catch (ApiException) { items = []; }
+    }
+
+    private void OnNotification(NotificationDto n) => InvokeAsync(() =>
+    {
+        items?.Insert(0, n);
+        StateHasChanged();
+    });
+
+    private async Task Open(NotificationDto n)
+    {
+        if (!n.IsRead)
+        {
+            await Api.MarkNotificationReadAsync(n.Id);
+            await Realtime.RefreshCountsAsync();
+        }
+        var href = n.PostId is int id ? $"post/{id}"
+            : n.Type == NotificationType.FriendRequestReceived ? "friends"
+            : $"profile/{n.Actor.Id}";
+        Nav.NavigateTo(href);
+    }
+
+    private async Task MarkAll()
+    {
+        await Api.MarkAllNotificationsReadAsync();
+        items = items?.Select(n => n with { IsRead = true }).ToList();
+        Realtime.ClearNotificationCount();
+    }
+
+    private static string Icon(NotificationType t) => t switch
+    {
+        NotificationType.PostLiked => "bi-hand-thumbs-up-fill",
+        NotificationType.PostCommented => "bi-chat-fill",
+        _ => "bi-person-fill"
+    };
+
+    private static string IconClass(NotificationType t) => t switch
+    {
+        NotificationType.PostLiked => "bg-primary",
+        NotificationType.PostCommented => "bg-success",
+        _ => "bg-info"
+    };
+
+    public void Dispose() => Realtime.NotificationReceived -= OnNotification;
+}
